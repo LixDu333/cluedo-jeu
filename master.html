@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Cluedo – Maître du jeu</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h1>Cluedo – Maître du jeu</h1>
+<p>Tu vois ici le meurtrier et le plateau synchronisé.</p>
+
+<div id="game-container">
+
+  <div id="players-list">
+    <h3>Joueurs</h3>
+    <ul id="players-ui"></ul>
+    <hr>
+    <p><strong>Meurtrier :</strong> <span id="killer-name">?</span></p>
+  </div>
+
+  <div id="game-area">
+    <div id="controls">
+      <button id="roll">Lancer le dé (joueur actif)</button>
+      <span id="result"></span>
+    </div>
+    <div id="board"></div>
+  </div>
+
+</div>
+
+<script type="module" src="master.js"></script>
+</body>
+</html>
