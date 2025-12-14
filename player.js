@@ -1,159 +1,206 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, onValue, update, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-
-// 👉 COLLE LA MÊME CONFIG QUE DANS master.js
 const firebaseConfig = {
-  apiKey: "TON_API_KEY",
-  authDomain: "TON_AUTH_DOMAIN",
-  databaseURL: "TON_DATABASE_URL",
-  projectId: "TON_PROJECT_ID",
-  storageBucket: "TON_BUCKET",
-  messagingSenderId: "TON_SENDER_ID",
-  appId: "TON_APP_ID"
+  apiKey: "AIzaSyDQ3ABWDL2OcBSaro9ZQ7Ez9pJrrbPS3RY",
+  authDomain: "jeuanglais-f56d0.firebaseapp.com",
+  databaseURL: "https://jeuanglais-f56d0-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "jeuanglais-f56d0",
+  storageBucket: "jeuanglais-f56d0.firebasestorage.app",
+  messagingSenderId: "59004903620",
+  appId: "1:59004903620:web:e2ff0f53d595a3e2ca6991"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-const roomRef = ref(db, "rooms/defaultRoom");
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const gameRef = db.ref("game");
 
-const boardEl   = document.getElementById("board");
-const rollBtn   = document.getElementById("roll");
-const resultEl  = document.getElementById("result");
+// ===== DOM =====
+const board = document.getElementById("board");
+const rollBtn = document.getElementById("roll");
+const result = document.getElementById("result");
 const playersUI = document.getElementById("players-ui");
-const whoAmIEl  = document.getElementById("who-am-i");
+const who = document.getElementById("who-am-i");
 
-const WIDTH = 25;
-const HEIGHT = 25;
-const TOTAL = WIDTH * HEIGHT;
+// ===== CONSTANTS =====
+const W = 25;
+const H = 25;
+const TOTAL = W * H;
+const idx = (x, y) => y * W + x;
 
 let cells = [];
-let myName = new URLSearchParams(window.location.search).get("name") || "Nathan";
+let state = null;
 
-whoAmIEl.textContent = "Tu joues : " + myName;
+const myName = new URLSearchParams(window.location.search).get("name") || "Nathan";
+who.textContent = "You are playing as: " + myName;
 
-// ==================== Plateau local ====================
-
-function buildBoard() {
-  boardEl.innerHTML = "";
-  cells = [];
-  for (let i = 0; i < TOTAL; i++) {
-    const cell = document.createElement("div");
-    cell.className = "cell";
-    boardEl.appendChild(cell);
-    cells.push(cell);
-  }
-
-  function paintRoom(x1, y1, x2, y2) {
-    for (let y = y1; y <= y2; y++) {
-      for (let x = x1; x <= x2; x++) {
-        const idx = y * WIDTH + x;
-        cells[idx].classList.add("room");
-      }
-    }
-  }
-
-  paintRoom(1, 1, 6, 6);
-  paintRoom(9, 1, 14, 6);
-  paintRoom(17, 1, 23, 6);
+// ===== BOARD =====
+board.innerHTML = "";
+for (let i = 0; i < TOTAL; i++) {
+  const c = document.createElement("div");
+  c.className = "cell";
+  board.appendChild(c);
+  cells.push(c);
 }
 
-buildBoard();
+// ===== ROOMS =====
+function room(cls, x1, y1, x2, y2) {
+  for (let y = y1; y <= y2; y++)
+    for (let x = x1; x <= x2; x++)
+      cells[idx(x, y)].classList.add(cls);
+}
 
-// ==================== Listener Firebase ====================
+room("room-salon",1,1,6,6);
+room("room-cuisine",9,1,14,6);
+room("room-salle",17,1,23,6);
+room("room-bureau",2,9,6,13);
+room("room-biblio",10,9,14,13);
+room("room-entree",18,9,23,13);
+room("room-parents",4,17,9,22);
+room("room-enfants",15,17,20,22);
 
-let lastState = null;
+function isRoom(i) {
+  const c = cells[i].classList;
+  return c.contains("room-salon") ||
+         c.contains("room-cuisine") ||
+         c.contains("room-salle") ||
+         c.contains("room-bureau") ||
+         c.contains("room-biblio") ||
+         c.contains("room-entree") ||
+         c.contains("room-parents") ||
+         c.contains("room-enfants");
+}
 
-onValue(roomRef, (snapshot) => {
-  const data = snapshot.val();
-  if (!data) return;
-  lastState = data;
+function clearPawns() {
+  cells.forEach(c => c.querySelector(".player")?.remove());
+}
 
-  const { players, currentPlayer, stepsRemaining } = data;
+function draw(game) {
+  // message
+  result.textContent = game.message || `Steps remaining: ${game.stepsRemaining ?? 0}`;
 
-  drawPlayers(players);
-  updatePlayersUI(players, currentPlayer);
-  resultEl.textContent = "Pas restants : " + stepsRemaining;
-});
+  // list
+  playersUI.innerHTML = "";
+  Object.entries(game.players).forEach(([name, p]) => {
+    const li = document.createElement("li");
+    li.textContent = `${name}${name === game.currentPlayer ? " ← current turn" : ""}`;
+    li.style.color = p.color;
+    if (!p.alive) li.style.opacity = "0.5";
+    playersUI.appendChild(li);
+  });
 
-// ==================== Affichage ====================
-
-function drawPlayers(playersState) {
-  cells.forEach(c => c.innerHTML = "");
-  Object.values(playersState).forEach(p => {
+  // pawns
+  clearPawns();
+  Object.values(game.players).forEach(p => {
     if (p.alive && cells[p.index]) {
       const pawn = document.createElement("div");
-      pawn.className = "player " + p.color;
+      pawn.className = "player";
+      pawn.style.background = p.color;
       cells[p.index].appendChild(pawn);
     }
   });
 }
 
-function updatePlayersUI(playersState, currentPlayer) {
-  playersUI.innerHTML = "";
-  Object.values(playersState).forEach(p => {
-    const li = document.createElement("li");
-    li.textContent = (p.name === "Chloe" ? "Chloé" : p.name) + (p.name === currentPlayer ? " ← tour" : "");
-    li.style.color = p.color;
-    if (!p.alive) li.classList.add("dead");
-    playersUI.appendChild(li);
-  });
-}
-
-// ==================== Lancer le dé ====================
-
-rollBtn.addEventListener("click", async () => {
-  if (!lastState) return;
-
-  const { currentPlayer, stepsRemaining } = lastState;
-
-  if (currentPlayer !== myName) {
-    alert("Ce n'est pas ton tour !");
-    return;
-  }
-
-  if (stepsRemaining > 0) {
-    alert("Tu as encore des pas à utiliser.");
-    return;
-  }
-
-  const roll = Math.floor(Math.random() * 6) + 1;
-
-  await update(roomRef, {
-    stepsRemaining: roll
-  });
+// ===== SYNC =====
+gameRef.on("value", snap => {
+  const d = snap.val();
+  if (!d || !d.players) return;
+  state = d;
+  draw(d);
 });
 
-// ==================== Déplacement clavier ====================
+// ===== TURN HELPERS (inside transaction) =====
+function pickNextPlayer(game) {
+  const order = game.turnOrder || ["Nathan","Gabriel","Antonin","Arthur","Julie","Eleonore","Alice","Chloe"];
+  let i = typeof game.turnIndex === "number" ? game.turnIndex : 0;
 
-document.addEventListener("keydown", async (e) => {
-  if (!lastState) return;
+  // advance at least once
+  let tries = 0;
+  do {
+    i = (i + 1) % order.length;
+    tries++;
+    const name = order[i];
+    if (game.players[name] && game.players[name].alive) {
+      return { nextIndex: i, nextName: name, order };
+    }
+  } while (tries <= order.length + 1);
 
-  let { players, currentPlayer, stepsRemaining } = lastState;
+  // fallback (shouldn't happen)
+  return { nextIndex: i, nextName: order[i] || "Nathan", order };
+}
 
-  if (currentPlayer !== myName) return;
-  if (stepsRemaining <= 0) return;
+// ===== ROLL DICE (transaction) =====
+rollBtn.onclick = () => {
+  gameRef.transaction(game => {
+    if (!game || !game.players) return game;
 
-  const me = players[myName];
-  if (!me || !me.alive) return;
+    if (game.currentPlayer !== myName) return game;
+    if ((game.stepsRemaining || 0) > 0) return game;
 
-  let newIndex = me.index;
-  const row = Math.floor(me.index / WIDTH);
-  const col = me.index % WIDTH;
+    const roll = Math.floor(Math.random() * 6) + 1;
+    game.stepsRemaining = roll;
+    game.message = `${myName} rolled a ${roll}.`;
+    return game;
+  });
+};
 
-  if (e.key === "ArrowUp" && row > 0) newIndex -= WIDTH;
-  else if (e.key === "ArrowDown" && row < HEIGHT - 1) newIndex += WIDTH;
-  else if (e.key === "ArrowLeft" && col > 0) newIndex -= 1;
-  else if (e.key === "ArrowRight" && col < WIDTH - 1) newIndex += 1;
-  else return;
+// ===== MOVE (transaction: atomic move + decrement + end turn + next player) =====
+document.addEventListener("keydown", e => {
+  const key = e.key;
+  if (!["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(key)) return;
 
-  if (!cells[newIndex]) return;
+  gameRef.transaction(game => {
+    if (!game || !game.players) return game;
 
-  // Met à jour ton index et stepsRemaining dans Firebase
-  players[myName].index = newIndex;
-  stepsRemaining--;
+    if (game.currentPlayer !== myName) return game;
+    if ((game.stepsRemaining || 0) <= 0) return game;
 
-  await update(roomRef, {
-    players,
-    stepsRemaining
+    const me = game.players[myName];
+    if (!me || !me.alive) return game;
+
+    const oldIndex = me.index;
+    const x = oldIndex % W;
+    const y = Math.floor(oldIndex / W);
+
+    let newIndex = oldIndex;
+    if (key === "ArrowUp" && y > 0) newIndex -= W;
+    else if (key === "ArrowDown" && y < H - 1) newIndex += W;
+    else if (key === "ArrowLeft" && x > 0) newIndex -= 1;
+    else if (key === "ArrowRight" && x < W - 1) newIndex += 1;
+    else return game;
+
+    // apply move
+    me.index = newIndex;
+
+    const wasInRoom = isRoom(oldIndex);
+    const isNowInRoom = isRoom(newIndex);
+
+    // entering OR leaving a room ends the turn immediately (your rule)
+    if (wasInRoom !== isNowInRoom) {
+      const { nextIndex, nextName } = pickNextPlayer(game);
+      game.stepsRemaining = 0;
+      game.turnIndex = nextIndex;
+      game.currentPlayer = nextName;
+
+      if (!wasInRoom && isNowInRoom) {
+        game.message = `${myName} entered a room. Turn over. It is now ${nextName}'s turn.`;
+      } else {
+        game.message = `${myName} left the room. Turn over. It is now ${nextName}'s turn.`;
+      }
+      return game;
+    }
+
+    // normal move consumes 1 step
+    game.stepsRemaining = (game.stepsRemaining || 0) - 1;
+
+    // if no steps left, end turn -> next player
+    if (game.stepsRemaining <= 0) {
+      const { nextIndex, nextName } = pickNextPlayer(game);
+      game.stepsRemaining = 0;
+      game.turnIndex = nextIndex;
+      game.currentPlayer = nextName;
+      game.message = `${myName} finished moving. It is now ${nextName}'s turn.`;
+    } else {
+      game.message = `Steps remaining: ${game.stepsRemaining}`;
+    }
+
+    return game;
   });
 });

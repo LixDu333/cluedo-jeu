@@ -1,162 +1,31 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Cluedo – Joueur</title>
+  <link rel="stylesheet" href="style.css">
 
-// ✅ TA CONFIG FIREBASE (INTÉGRÉE)
-const firebaseConfig = {
-  apiKey: "AIzaSyDQ3ABWDL2OcBSaro9ZQ7Ez9pJrrbPS3RY",
-  authDomain: "jeuanglais-f56d0.firebaseapp.com",
-  projectId: "jeuanglais-f56d0",
-  storageBucket: "jeuanglais-f56d0.firebasestorage.app",
-  messagingSenderId: "59004903620",
-  appId: "1:59004903620:web:e2ff0f53d595a3e2ca6991",
-  measurementId: "G-0SW3WTLRR3"
-};
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+</head>
+<body>
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-const roomRef = ref(db, "rooms/defaultRoom");
+<h1>Cluedo – Joueur</h1>
+<p id="who-am-i"></p>
 
-const boardEl   = document.getElementById("board");
-const rollBtn   = document.getElementById("roll");
-const resultEl  = document.getElementById("result");
-const playersUI = document.getElementById("players-ui");
-const whoAmIEl  = document.getElementById("who-am-i");
+<div id="game-container">
+  <div id="players-list">
+    <h3>Joueurs</h3>
+    <ul id="players-ui"></ul>
+  </div>
 
-const WIDTH = 25;
-const HEIGHT = 25;
-const TOTAL = WIDTH * HEIGHT;
+  <div id="game-area">
+    <button id="roll">🎲 Lancer le dé</button>
+    <p id="result"></p>
+    <div id="board"></div>
+  </div>
+</div>
 
-let cells = [];
-let lastState = null;
-
-let myName = new URLSearchParams(window.location.search).get("name") || "Nathan";
-whoAmIEl.textContent = "Tu joues : " + myName;
-
-// ==================== PLATEAU JOUEUR ====================
-
-function buildBoard() {
-  boardEl.innerHTML = "";
-  cells = [];
-
-  for (let i = 0; i < TOTAL; i++) {
-    const cell = document.createElement("div");
-    cell.className = "cell";
-    boardEl.appendChild(cell);
-    cells.push(cell);
-  }
-
-  function paintRoom(x1, y1, x2, y2) {
-    for (let y = y1; y <= y2; y++) {
-      for (let x = x1; x <= x2; x++) {
-        const idx = y * WIDTH + x;
-        cells[idx].classList.add("room");
-      }
-    }
-  }
-
-  paintRoom(1, 1, 6, 6);
-  paintRoom(9, 1, 14, 6);
-  paintRoom(17, 1, 23, 6);
-  paintRoom(2, 9, 6, 13);
-  paintRoom(10, 9, 14, 13);
-  paintRoom(18, 9, 23, 13);
-  paintRoom(4, 17, 9, 22);
-  paintRoom(15, 17, 20, 22);
-}
-
-buildBoard();
-
-// ==================== SYNCHRO JOUEUR ====================
-
-onValue(roomRef, (snapshot) => {
-  const data = snapshot.val();
-  if (!data) return;
-
-  lastState = data;
-  const { players, currentPlayer, stepsRemaining } = data;
-
-  drawPlayers(players);
-  updatePlayersUI(players, currentPlayer);
-  resultEl.textContent = "Pas restants : " + stepsRemaining;
-});
-
-// ==================== AFFICHAGE ====================
-
-function drawPlayers(playersState) {
-  cells.forEach(c => c.innerHTML = "");
-  Object.values(playersState).forEach(p => {
-    if (p.alive && cells[p.index]) {
-      const pawn = document.createElement("div");
-      pawn.className = "player " + p.color;
-      cells[p.index].appendChild(pawn);
-    }
-  });
-}
-
-function updatePlayersUI(playersState, currentPlayer) {
-  playersUI.innerHTML = "";
-  Object.values(playersState).forEach(p => {
-    const li = document.createElement("li");
-    li.textContent = p.name + (p.name === currentPlayer ? " ← tour" : "");
-    li.style.color = p.color;
-    if (!p.alive) li.classList.add("dead");
-    playersUI.appendChild(li);
-  });
-}
-
-// ==================== LANCER LE DÉ ====================
-
-rollBtn.addEventListener("click", async () => {
-  if (!lastState) return;
-
-  const { currentPlayer, stepsRemaining } = lastState;
-
-  if (currentPlayer !== myName) {
-    alert("Ce n'est pas ton tour !");
-    return;
-  }
-
-  if (stepsRemaining > 0) {
-    alert("Tu as encore des pas à utiliser.");
-    return;
-  }
-
-  const roll = Math.floor(Math.random() * 6) + 1;
-
-  await update(roomRef, {
-    stepsRemaining: roll
-  });
-});
-
-// ==================== DÉPLACEMENT ====================
-
-document.addEventListener("keydown", async (e) => {
-  if (!lastState) return;
-
-  let { players, currentPlayer, stepsRemaining } = lastState;
-  if (currentPlayer !== myName) return;
-  if (stepsRemaining <= 0) return;
-
-  const me = players[myName];
-  if (!me || !me.alive) return;
-
-  let newIndex = me.index;
-  const row = Math.floor(me.index / WIDTH);
-  const col = me.index % WIDTH;
-
-  if (e.key === "ArrowUp" && row > 0) newIndex -= WIDTH;
-  else if (e.key === "ArrowDown" && row < HEIGHT - 1) newIndex += WIDTH;
-  else if (e.key === "ArrowLeft" && col > 0) newIndex -= 1;
-  else if (e.key === "ArrowRight" && col < WIDTH - 1) newIndex += 1;
-  else return;
-
-  if (!cells[newIndex]) return;
-
-  players[myName].index = newIndex;
-  stepsRemaining--;
-
-  await update(roomRef, {
-    players,
-    stepsRemaining
-  });
-});
+<script src="player.js"></script>
+</body>
+</html>
