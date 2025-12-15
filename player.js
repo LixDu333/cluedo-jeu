@@ -12,83 +12,144 @@ if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 const gameRef = db.ref("game");
 
-// ===== DOM =====
+/* ===== DOM ===== */
 const board = document.getElementById("board");
 const rollBtn = document.getElementById("roll");
 const result = document.getElementById("result");
 const playersUI = document.getElementById("players-ui");
 const who = document.getElementById("who-am-i");
 
-// ===== CONSTANTS =====
-const W = 25;
-const H = 25;
-const TOTAL = W * H;
+/* ===== CONSTANTS ===== */
+const W = 25, H = 25, TOTAL = W * H;
 const idx = (x, y) => y * W + x;
 
 let cells = [];
 let state = null;
 
-const myName = new URLSearchParams(window.location.search).get("name") || "Nathan";
-who.textContent = "You are playing as: " + myName;
+const myName =
+  new URLSearchParams(window.location.search).get("name") || "Nathan";
 
-// ===== BOARD =====
+
+/* ===== BUILD BOARD ===== */
 board.innerHTML = "";
 for (let i = 0; i < TOTAL; i++) {
   const c = document.createElement("div");
   c.className = "cell";
+  c.addEventListener("click", () => onCellClick(i));
   board.appendChild(c);
   cells.push(c);
 }
 
-// ===== ROOMS =====
-function room(cls, x1, y1, x2, y2) {
+/* ===== ROOMS (VISUAL ONLY) ===== */
+function paintRoom(cls, x1, y1, x2, y2) {
   for (let y = y1; y <= y2; y++)
     for (let x = x1; x <= x2; x++)
       cells[idx(x, y)].classList.add(cls);
 }
+paintRoom("room-salon", 1, 1, 6, 6);
+paintRoom("room-cuisine", 9, 1, 14, 6);
+paintRoom("room-salle", 17, 1, 23, 6);
+paintRoom("room-bureau", 2, 9, 6, 13);
+paintRoom("room-biblio", 10, 9, 14, 13);
+paintRoom("room-entree", 18, 9, 23, 13);
+paintRoom("room-parents", 4, 17, 9, 22);
+paintRoom("room-enfants", 15, 17, 20, 22);
 
-room("room-salon",1,1,6,6);
-room("room-cuisine",9,1,14,6);
-room("room-salle",17,1,23,6);
-room("room-bureau",2,9,6,13);
-room("room-biblio",10,9,14,13);
-room("room-entree",18,9,23,13);
-room("room-parents",4,17,9,22);
-room("room-enfants",15,17,20,22);
+/* ===== ROOM LOGIC (NO DOM) ===== */
+function isRoomIndex(i) {
+  const x = i % W;
+  const y = Math.floor(i / W);
 
-function isRoom(i) {
-  const c = cells[i].classList;
-  return c.contains("room-salon") ||
-         c.contains("room-cuisine") ||
-         c.contains("room-salle") ||
-         c.contains("room-bureau") ||
-         c.contains("room-biblio") ||
-         c.contains("room-entree") ||
-         c.contains("room-parents") ||
-         c.contains("room-enfants");
+  if (x >= 1 && x <= 6 && y >= 1 && y <= 6) return true;       // salon
+  if (x >= 9 && x <= 14 && y >= 1 && y <= 6) return true;     // cuisine
+  if (x >= 17 && x <= 23 && y >= 1 && y <= 6) return true;    // salle
+  if (x >= 2 && x <= 6 && y >= 9 && y <= 13) return true;     // bureau
+  if (x >= 10 && x <= 14 && y >= 9 && y <= 13) return true;   // bibliothèque
+  if (x >= 18 && x <= 23 && y >= 9 && y <= 13) return true;   // entrée
+  if (x >= 4 && x <= 9 && y >= 17 && y <= 22) return true;    // parents
+  if (x >= 15 && x <= 20 && y >= 17 && y <= 22) return true;  // enfants
+
+  return false;
 }
 
-function clearPawns() {
-  cells.forEach(c => c.querySelector(".player")?.remove());
+/* ===== HELPERS ===== */
+function isAdjacent(a, b) {
+  const ax = a % W,
+    ay = Math.floor(a / W);
+  const bx = b % W,
+    by = Math.floor(b / W);
+  return Math.abs(ax - bx) + Math.abs(ay - by) === 1;
 }
 
-function draw(game) {
-  // message
-  result.textContent = game.message || `Steps remaining: ${game.stepsRemaining ?? 0}`;
+function hasFurnitureAt(game, i) {
+  if (!game.furniture) return false;
+  for (const arr of Object.values(game.furniture))
+    for (const f of arr) if (f.i === i) return true;
+  return false;
+}
 
-  // list
-  playersUI.innerHTML = "";
-  Object.entries(game.players).forEach(([name, p]) => {
-    const li = document.createElement("li");
-    li.textContent = `${name}${name === game.currentPlayer ? " ← current turn" : ""}`;
-    li.style.color = p.color;
-    if (!p.alive) li.style.opacity = "0.5";
-    playersUI.appendChild(li);
+function furnitureHasClueAt(game, i) {
+  if (!game.furniture) return false;
+  for (const arr of Object.values(game.furniture))
+    for (const f of arr) if (f.i === i && f.clue) return true;
+  return false;
+}
+
+function setFurnitureClueFalse(game, i) {
+  let found = false;
+  for (const arr of Object.values(game.furniture))
+    for (const f of arr)
+      if (f.i === i && f.clue) {
+        f.clue = false;
+        found = true;
+      }
+  return found;
+}
+
+function pickNextPlayer(game) {
+  const order = game.turnOrder;
+  let i = game.turnIndex;
+  do {
+    i = (i + 1) % order.length;
+    if (game.players[order[i]].alive)
+      return { nextIndex: i, nextName: order[i] };
+  } while (true);
+}
+
+/* ===== SYNC ===== */
+gameRef.on("value", (snap) => {
+  const g = snap.val();
+  if (!g || !g.players) return;
+  state = g;
+  if (g.killer === myName) {
+  result.textContent = "You are the KILLER. Keep it secret.";
+}
+
+
+
+  // Clear board
+  cells.forEach((c) => {
+    c.querySelector(".player")?.remove();
+    c.classList.remove("furniture", "clue");
   });
 
-  // pawns
-  clearPawns();
-  Object.values(game.players).forEach(p => {
+  // Furniture
+  if (g.furniture) {
+    Object.values(g.furniture)
+      .flat()
+      .forEach((f) => {
+        cells[f.i]?.classList.add("furniture");
+        if (f.clue) cells[f.i]?.classList.add("clue");
+      });
+  }
+
+  // Players
+  playersUI.innerHTML = "";
+  Object.entries(g.players).forEach(([n, p]) => {
+    const li = document.createElement("li");
+    li.textContent = n + (n === g.currentPlayer ? " ← current turn" : "");
+    li.style.color = p.color;
+    playersUI.appendChild(li);
     if (p.alive && cells[p.index]) {
       const pawn = document.createElement("div");
       pawn.className = "player";
@@ -96,104 +157,80 @@ function draw(game) {
       cells[p.index].appendChild(pawn);
     }
   });
-}
 
-// ===== SYNC =====
-gameRef.on("value", snap => {
-  const d = snap.val();
-  if (!d || !d.players) return;
-  state = d;
-  draw(d);
+  // Message
+  if (g.currentQuestion) {
+    if (g.currentQuestion.player === myName) {
+      result.textContent =
+        "You found a clue. The Game Master is checking your answer.";
+    } else {
+      result.textContent = `${g.currentQuestion.player} is answering a question.`;
+    }
+  } else {
+    result.textContent = g.message || "";
+  }
 });
 
-// ===== TURN HELPERS (inside transaction) =====
-function pickNextPlayer(game) {
-  const order = game.turnOrder || ["Nathan","Gabriel","Antonin","Arthur","Julie","Eleonore","Alice","Chloe"];
-  let i = typeof game.turnIndex === "number" ? game.turnIndex : 0;
-
-  // advance at least once
-  let tries = 0;
-  do {
-    i = (i + 1) % order.length;
-    tries++;
-    const name = order[i];
-    if (game.players[name] && game.players[name].alive) {
-      return { nextIndex: i, nextName: name, order };
-    }
-  } while (tries <= order.length + 1);
-
-  // fallback (shouldn't happen)
-  return { nextIndex: i, nextName: order[i] || "Nathan", order };
-}
-
-// ===== ROLL DICE (transaction) =====
+/* ===== ROLL ===== */
 rollBtn.onclick = () => {
-  gameRef.transaction(game => {
-    if (!game || !game.players) return game;
-
-    if (game.currentPlayer !== myName) return game;
+  gameRef.transaction((game) => {
+    if (!game || game.currentPlayer !== myName) return game;
     if ((game.stepsRemaining || 0) > 0) return game;
-
-    const roll = Math.floor(Math.random() * 6) + 1;
-    game.stepsRemaining = roll;
-    game.message = `${myName} rolled a ${roll}.`;
+    const r = Math.floor(Math.random() * 6) + 1;
+    game.stepsRemaining = r;
+    game.message = `${myName} rolled a ${r}.`;
     return game;
   });
 };
 
-// ===== MOVE (transaction: atomic move + decrement + end turn + next player) =====
-document.addEventListener("keydown", e => {
-  const key = e.key;
-  if (!["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(key)) return;
+/* ===== MOVE ===== */
+document.addEventListener("keydown", (e) => {
+  if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key))
+    return;
 
-  gameRef.transaction(game => {
-    if (!game || !game.players) return game;
-
-    if (game.currentPlayer !== myName) return game;
-    if ((game.stepsRemaining || 0) <= 0) return game;
+  gameRef.transaction((game) => {
+    if (
+      !game ||
+      game.currentPlayer !== myName ||
+      (game.stepsRemaining || 0) <= 0
+    )
+      return game;
 
     const me = game.players[myName];
-    if (!me || !me.alive) return game;
+    const from = me.index;
+    let to = from;
 
-    const oldIndex = me.index;
-    const x = oldIndex % W;
-    const y = Math.floor(oldIndex / W);
+    const x = from % W,
+      y = Math.floor(from / W);
 
-    let newIndex = oldIndex;
-    if (key === "ArrowUp" && y > 0) newIndex -= W;
-    else if (key === "ArrowDown" && y < H - 1) newIndex += W;
-    else if (key === "ArrowLeft" && x > 0) newIndex -= 1;
-    else if (key === "ArrowRight" && x < W - 1) newIndex += 1;
+    if (e.key === "ArrowUp" && y > 0) to -= W;
+    else if (e.key === "ArrowDown" && y < H - 1) to += W;
+    else if (e.key === "ArrowLeft" && x > 0) to -= 1;
+    else if (e.key === "ArrowRight" && x < W - 1) to += 1;
     else return game;
 
-    // apply move
-    me.index = newIndex;
+    if (hasFurnitureAt(game, to)) return game;
 
-    const wasInRoom = isRoom(oldIndex);
-    const isNowInRoom = isRoom(newIndex);
+    const wasRoom = isRoomIndex(from);
+    const nowRoom = isRoomIndex(to);
 
-    // entering OR leaving a room ends the turn immediately (your rule)
-    if (wasInRoom !== isNowInRoom) {
+    me.index = to;
+
+    if (wasRoom !== nowRoom) {
       const { nextIndex, nextName } = pickNextPlayer(game);
       game.stepsRemaining = 0;
       game.turnIndex = nextIndex;
       game.currentPlayer = nextName;
-
-      if (!wasInRoom && isNowInRoom) {
-        game.message = `${myName} entered a room. Turn over. It is now ${nextName}'s turn.`;
-      } else {
-        game.message = `${myName} left the room. Turn over. It is now ${nextName}'s turn.`;
-      }
+      game.message = `${myName} ${
+        nowRoom ? "entered" : "left"
+      } a room. Turn over. It is now ${nextName}'s turn.`;
       return game;
     }
 
-    // normal move consumes 1 step
-    game.stepsRemaining = (game.stepsRemaining || 0) - 1;
+    game.stepsRemaining--;
 
-    // if no steps left, end turn -> next player
     if (game.stepsRemaining <= 0) {
       const { nextIndex, nextName } = pickNextPlayer(game);
-      game.stepsRemaining = 0;
       game.turnIndex = nextIndex;
       game.currentPlayer = nextName;
       game.message = `${myName} finished moving. It is now ${nextName}'s turn.`;
@@ -204,3 +241,40 @@ document.addEventListener("keydown", e => {
     return game;
   });
 });
+
+/* ===== SEARCH FURNITURE ===== */
+function onCellClick(i) {
+  if (!state || state.currentPlayer !== myName) return;
+  const me = state.players[myName];
+  if (!isAdjacent(me.index, i)) return;
+
+  gameRef.transaction((game) => {
+    if (!game || game.currentPlayer !== myName) return game;
+    if (!hasFurnitureAt(game, i)) return game;
+
+    const found =
+      furnitureHasClueAt(game, i) && setFurnitureClueFalse(game, i);
+
+    const { nextIndex, nextName } = pickNextPlayer(game);
+
+    game.stepsRemaining = 0;
+    game.turnIndex = nextIndex;
+    game.currentPlayer = nextName;
+
+    if (found) {
+      game.currentQuestion = {
+        id: Date.now() + "_" + Math.random().toString(16).slice(2),
+        player: myName,
+        pending: true,
+        assigned: false,
+        q: "",
+        a: ""
+      };
+      game.message = `${myName} found a clue. Turn over. It is now ${nextName}'s turn.`;
+    } else {
+      game.message = `${myName} searched furniture. Nothing found. Turn over. It is now ${nextName}'s turn.`;
+    }
+
+    return game;
+  });
+}
