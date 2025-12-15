@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Cluedo – Maître du jeu</title>
+  <title>Cluedo – Game Master</title>
   <link rel="stylesheet" href="style.css">
 
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
@@ -10,14 +10,21 @@
 </head>
 <body>
 
-<h1>Cluedo – Maître du jeu</h1>
+<h1>Cluedo – Game Master</h1>
+
+<button id="restartBtn">🔄 Restart game</button>
+<button id="skipTurnBtn">Pass current turn</button>
+<button id="validateBtn">✔ Validate answer</button>
+
+
+
 
 <div id="game-container">
   <div id="players-list">
-    <h3>Joueurs</h3>
+    <h3>Players</h3>
     <ul id="players-ui"></ul>
     <hr>
-    <p><strong>Meurtrier :</strong> <span id="killer-name"></span></p>
+    <p><strong>Killer:</strong> <span id="killer-name"></span></p>
   </div>
 
   <div id="game-area">
